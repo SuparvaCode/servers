@@ -90,6 +90,15 @@ def test_get_current_time_with_invalid_timezone():
         time_server.get_current_time("Invalid/Timezone")
 
 
+def test_get_current_time_with_case_mismatched_timezone():
+    time_server = TimeServer()
+    with pytest.raises(
+        MCPError,
+        match=r"Invalid timezone: 'No time zone found with key europe/warsaw'",
+    ):
+        time_server.get_current_time("europe/warsaw")
+
+
 @pytest.mark.parametrize(
     "source_tz,time_str,target_tz,expected_error",
     [

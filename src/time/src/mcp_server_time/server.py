@@ -15,7 +15,7 @@ import json
 import sys
 from typing import Any
 
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError, available_timezones
 from tzlocal import get_localzone_name  # ← returns "Europe/Paris", etc.
 
 import jsonschema
@@ -81,7 +81,10 @@ def get_local_tz(local_tz_override: str | None = None) -> ZoneInfo:
 
 def get_zoneinfo(timezone_name: str) -> ZoneInfo:
     try:
-        return ZoneInfo(timezone_name)
+        tz = ZoneInfo(timezone_name)
+        if timezone_name not in available_timezones():
+            raise ZoneInfoNotFoundError(f"No time zone found with key {timezone_name}")
+        return tz
     except Exception as e:
         raise MCPError(code=INVALID_PARAMS, message=f"Invalid timezone: {str(e)}")
 
@@ -174,6 +177,10 @@ async def serve(local_timezone: str | None = None) -> None:
         # its messages can carry a filesystem path, so none of them is shown.
         try:
             ZoneInfo(local_timezone)
+            if local_timezone not in available_timezones():
+                raise ZoneInfoNotFoundError(
+                    f"No time zone found with key {local_timezone}"
+                )
         except (ZoneInfoNotFoundError, ValueError, OSError):
             sys.exit(
                 f"Error: invalid --local-timezone {local_timezone!r}: "
