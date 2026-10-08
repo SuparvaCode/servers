@@ -3,12 +3,14 @@
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
 from mcp.shared.exceptions import McpError
+from mcp.types import INVALID_PARAMS, INTERNAL_ERROR
 
 from mcp_server_fetch.server import (
     extract_content_from_html,
     get_robots_txt_url,
     check_may_autonomously_fetch_url,
     fetch_url,
+    create_server,
     DEFAULT_USER_AGENT_AUTONOMOUS,
 )
 
@@ -324,3 +326,71 @@ class TestFetchUrl:
 
             # Verify AsyncClient was called with proxy
             mock_client_class.assert_called_once_with(proxy="http://proxy.example.com:8080")
+
+    @pytest.mark.asyncio
+    async def test_fetch_invalid_url_raises_mcperror(self):
+        """Test that invalid URL raises McpError instead of escaping unhandled."""
+        with pytest.raises(McpError) as exc_info:
+            await fetch_url(
+                "http://[::1",
+                DEFAULT_USER_AGENT_AUTONOMOUS,
+            )
+        assert exc_info.value.error.code == INTERNAL_ERROR
+
+
+class TestFetchPrompt:
+    """Tests for the fetch prompt handler."""
+
+    @pytest.fixture
+    def server(self):
+        return create_server()
+
+    @pytest.fixture
+    def prompt_handler(self, server):
+        import mcp.types as types
+        return server.request_handlers[types.GetPromptRequest]
+
+    @pytest.mark.asyncio
+    async def test_prompt_missing_url_raises_invalid_params(self, prompt_handler):
+        """Test that missing URL parameter raises INVALID_PARAMS."""
+        import mcp.types as types
+        with pytest.raises(McpError) as exc_info:
+            await prompt_handler(
+                types.GetPromptRequest(
+                    params=types.GetPromptRequestParams(name="fetch", arguments={})
+                )
+            )
+        assert exc_info.value.error.code == INVALID_PARAMS
+
+    @pytest.mark.asyncio
+    async def test_prompt_invalid_url_raises_invalid_params(self, prompt_handler):
+        """Test that malformed URL raises INVALID_PARAMS instead of unhandled error."""
+        import mcp.types as types
+        with pytest.raises(McpError) as exc_info:
+            await prompt_handler(
+                types.GetPromptRequest(
+                    params=types.GetPromptRequestParams(
+                        name="fetch", arguments={"url": "http://[::1"}
+                    )
+                )
+            )
+        assert exc_info.value.error.code == INVALID_PARAMS
+
+    @pytest.mark.asyncio
+    async def test_prompt_valid_url(self, prompt_handler):
+        """Test that valid URL returns prompt result."""
+        import mcp.types as types
+        with patch("mcp_server_fetch.server.fetch_url", new_callable=AsyncMock) as mock_fetch:
+            mock_fetch.return_value = ("Example content", "")
+            result = await prompt_handler(
+                types.GetPromptRequest(
+                    params=types.GetPromptRequestParams(
+                        name="fetch", arguments={"url": "https://example.com"}
+                    )
+                )
+            )
+            assert result.root.description == "Contents of https://example.com/"
+            assert len(result.root.messages) == 1
+            assert result.root.messages[0].content.text == "Example content"
+
+

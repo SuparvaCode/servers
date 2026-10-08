@@ -68,7 +68,7 @@ async def check_may_autonomously_fetch_url(url: str, user_agent: str, proxy_url:
     Check if the URL can be fetched by the user agent according to the robots.txt file.
     Raises a McpError if not.
     """
-    from httpx import AsyncClient, HTTPError
+    from httpx import AsyncClient, HTTPError, InvalidURL
 
     robot_txt_url = get_robots_txt_url(url)
 
@@ -79,7 +79,7 @@ async def check_may_autonomously_fetch_url(url: str, user_agent: str, proxy_url:
                 follow_redirects=True,
                 headers={"User-Agent": user_agent},
             )
-        except HTTPError:
+        except (HTTPError, InvalidURL):
             raise McpError(ErrorData(
                 code=INTERNAL_ERROR,
                 message=f"Failed to fetch robots.txt {robot_txt_url} due to a connection issue",
@@ -114,7 +114,7 @@ async def fetch_url(
     """
     Fetch the URL and return the content in a form ready for the LLM, as well as a prefix string with status information.
     """
-    from httpx import AsyncClient, HTTPError
+    from httpx import AsyncClient, HTTPError, InvalidURL
 
     async with AsyncClient(proxy=proxy_url) as client:
         try:
@@ -124,7 +124,7 @@ async def fetch_url(
                 headers={"User-Agent": user_agent},
                 timeout=30,
             )
-        except HTTPError as e:
+        except (HTTPError, InvalidURL) as e:
             raise McpError(ErrorData(code=INTERNAL_ERROR, message=f"Failed to fetch {url}: {e!r}"))
         if response.status_code >= 400:
             raise McpError(ErrorData(
@@ -178,18 +178,11 @@ class Fetch(BaseModel):
     ]
 
 
-async def serve(
+def create_server(
     custom_user_agent: str | None = None,
     ignore_robots_txt: bool = False,
     proxy_url: str | None = None,
-) -> None:
-    """Run the fetch MCP server.
-
-    Args:
-        custom_user_agent: Optional custom User-Agent string to use for requests
-        ignore_robots_txt: Whether to ignore robots.txt restrictions
-        proxy_url: Optional proxy URL to use for requests
-    """
+) -> Server:
     server = Server("mcp-fetch")
     user_agent_autonomous = custom_user_agent or DEFAULT_USER_AGENT_AUTONOMOUS
     user_agent_manual = custom_user_agent or DEFAULT_USER_AGENT_MANUAL
@@ -259,7 +252,14 @@ Although originally you did not have internet access, and were advised to refuse
         if not arguments or "url" not in arguments:
             raise McpError(ErrorData(code=INVALID_PARAMS, message="URL is required"))
 
-        url = arguments["url"]
+        try:
+            args = Fetch(url=arguments["url"])
+        except ValueError as e:
+            raise McpError(ErrorData(code=INVALID_PARAMS, message=str(e)))
+
+        url = str(args.url)
+        if not url:
+            raise McpError(ErrorData(code=INVALID_PARAMS, message="URL is required"))
 
         try:
             content, prefix = await fetch_url(url, user_agent_manual, proxy_url=proxy_url)
@@ -283,6 +283,22 @@ Although originally you did not have internet access, and were advised to refuse
             ],
         )
 
+    return server
+
+
+async def serve(
+    custom_user_agent: str | None = None,
+    ignore_robots_txt: bool = False,
+    proxy_url: str | None = None,
+) -> None:
+    """Run the fetch MCP server.
+
+    Args:
+        custom_user_agent: Optional custom User-Agent string to use for requests
+        ignore_robots_txt: Whether to ignore robots.txt restrictions
+        proxy_url: Optional proxy URL to use for requests
+    """
+    server = create_server(custom_user_agent, ignore_robots_txt, proxy_url)
     options = server.create_initialization_options()
     async with stdio_server() as (read_stream, write_stream):
         await server.run(read_stream, write_stream, options, raise_exceptions=False)
