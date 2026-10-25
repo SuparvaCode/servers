@@ -912,27 +912,44 @@ describe("Lib Functions", () => {
       });
 
       it("handles files with content and returns last lines", async () => {
-        mockFs.stat.mockResolvedValue({ size: 50 } as Stats);
+        const content = Buffer.from("line1\nline2\nline3\nline4\nline5\n");
+        const mockFileHandle = createMockFileHandle(content);
 
-        const mockFileHandle = {
-          read: vi.fn(),
-          close: vi.fn(),
-        };
-
-        // Simulate reading file content in chunks
-        mockFileHandle.read
-          .mockResolvedValueOnce({
-            bytesRead: 20,
-            buffer: Buffer.from("line3\nline4\nline5\n"),
-          })
-          .mockResolvedValueOnce({ bytesRead: 0 });
-        mockFileHandle.close.mockResolvedValue(undefined);
-
+        mockFs.stat.mockResolvedValue({ size: content.length } as Stats);
         mockFs.open.mockResolvedValue(asFileHandle(mockFileHandle));
 
-        await tailFile("/test/file.txt", 2);
+        const result = await tailFile("/test/file.txt", 2);
 
+        expect(result).toBe("line4\nline5");
         expect(mockFileHandle.close).toHaveBeenCalled();
+      });
+
+      it("returns the correct number of lines when file ends in a newline", async () => {
+        const content = Buffer.from("line1\nline2\nline3\n");
+        const mockFileHandle = createMockFileHandle(content);
+
+        mockFs.stat.mockResolvedValue({ size: content.length } as Stats);
+        mockFs.open.mockResolvedValue(asFileHandle(mockFileHandle));
+
+        expect(await tailFile("/test/file.txt", 1)).toBe("line3");
+
+        mockFs.stat.mockResolvedValue({ size: content.length } as Stats);
+        mockFs.open.mockResolvedValue(asFileHandle(createMockFileHandle(content)));
+        expect(await tailFile("/test/file.txt", 2)).toBe("line2\nline3");
+
+        mockFs.stat.mockResolvedValue({ size: content.length } as Stats);
+        mockFs.open.mockResolvedValue(asFileHandle(createMockFileHandle(content)));
+        expect(await tailFile("/test/file.txt", 3)).toBe("line1\nline2\nline3");
+      });
+
+      it("handles CRLF line endings ending in a newline", async () => {
+        const content = Buffer.from("line1\r\nline2\r\nline3\r\n");
+        const mockFileHandle = createMockFileHandle(content);
+
+        mockFs.stat.mockResolvedValue({ size: content.length } as Stats);
+        mockFs.open.mockResolvedValue(asFileHandle(mockFileHandle));
+
+        expect(await tailFile("/test/file.txt", 2)).toBe("line2\nline3");
       });
 
       it("preserves UTF-8 characters split across chunk boundaries", async () => {

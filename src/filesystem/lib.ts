@@ -595,7 +595,7 @@ export async function tailFile(
     let newlinesFound = 0;
 
     // Read chunks from the end of the file until we have enough lines
-    while (position > 0 && newlinesFound < numLines) {
+    while (position > 0 && newlinesFound <= numLines) {
       const size = Math.min(CHUNK_SIZE, position);
       position -= size;
 
@@ -609,7 +609,10 @@ export async function tailFile(
       }
     }
 
-    const text = normalizeLineEndings(Buffer.concat(chunks).toString("utf-8"));
+    let text = normalizeLineEndings(Buffer.concat(chunks).toString("utf-8"));
+    if (text.endsWith("\n")) {
+      text = text.slice(0, -1);
+    }
     return text.split("\n").slice(-numLines).join("\n");
   } finally {
     await fileHandle.close();
