@@ -934,11 +934,15 @@ describe("Lib Functions", () => {
         expect(await tailFile("/test/file.txt", 1)).toBe("line3");
 
         mockFs.stat.mockResolvedValue({ size: content.length } as Stats);
-        mockFs.open.mockResolvedValue(asFileHandle(createMockFileHandle(content)));
+        mockFs.open.mockResolvedValue(
+          asFileHandle(createMockFileHandle(content)),
+        );
         expect(await tailFile("/test/file.txt", 2)).toBe("line2\nline3");
 
         mockFs.stat.mockResolvedValue({ size: content.length } as Stats);
-        mockFs.open.mockResolvedValue(asFileHandle(createMockFileHandle(content)));
+        mockFs.open.mockResolvedValue(
+          asFileHandle(createMockFileHandle(content)),
+        );
         expect(await tailFile("/test/file.txt", 3)).toBe("line1\nline2\nline3");
       });
 
